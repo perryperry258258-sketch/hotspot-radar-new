@@ -23,6 +23,14 @@ const QUERIES = [
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
+const COMMON_HEADERS = {
+  "User-Agent": UA,
+  Accept:
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+  "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+  Referer: "https://duckduckgo.com/",
+};
+
 function decodeDdgHref(rawHref: string): string {
   if (!rawHref) return rawHref;
   try {
@@ -37,23 +45,52 @@ function decodeDdgHref(rawHref: string): string {
 }
 
 /**
- * 使用 DuckDuckGo 的 HTML 版搜尋結果頁（https://html.duckduckgo.com/html/）。
- * 這是免費、不需要任何 API Key 的公開搜尋管道，沒有官方 API 保證，
- * 純粹是解析公開的 HTML 搜尋結果頁面，所以標記為「盡力而為」的資料來源──
- * 如果 DuckDuckGo 改版或暫時擋掉請求，這裡會直接回傳空陣列，不會讓整個流程掛掉。
+ * 第一優先：lite.duckduckgo.com/lite/ ── 這是 DuckDuckGo 給低頻寬/文字瀏覽器用的
+ * 簡化版頁面，結構單純很多，實務上比 html.duckduckgo.com/html/ 更不容易被擋或改版。
  */
-async function ddgSearch(query: string, maxResults = 8): Promise<RawResult[]> {
+async function ddgLiteSearch(
+  query: string,
+  maxResults = 8
+): Promise<RawResult[]> {
+  try {
+    const url = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(
+      query
+    )}&kl=tw-tzh`;
+    const res = await fetch(url, { headers: COMMON_HEADERS, cache: "no-store" });
+    if (!res.ok) return [];
+    const html = await res.text();
+    const $ = cheerio.load(html);
+    const results: RawResult[] = [];
+
+    $("a.result-link").each((_, el) => {
+      if (results.length >= maxResults) return;
+      const title = $(el).text().trim();
+      if (!title) return;
+      const href = decodeDdgHref($(el).attr("href") || "");
+      const snippetRow = $(el).closest("tr").next("tr");
+      const snippet = snippetRow.find(".result-snippet").text().trim();
+      results.push({ title, url: href, snippet, query, source: "duckduckgo" });
+    });
+
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 第二優先（fallback）：html.duckduckgo.com/html/ 的一般版面。
+ * 只有 lite 版沒抓到任何結果時才會用到。
+ */
+async function ddgHtmlSearch(
+  query: string,
+  maxResults = 8
+): Promise<RawResult[]> {
   try {
     const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(
       query
     )}&kl=tw-tzh`;
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": UA,
-        Accept: "text/html",
-      },
-      cache: "no-store",
-    });
+    const res = await fetch(url, { headers: COMMON_HEADERS, cache: "no-store" });
     if (!res.ok) return [];
     const html = await res.text();
     const $ = cheerio.load(html);
@@ -73,6 +110,13 @@ async function ddgSearch(query: string, maxResults = 8): Promise<RawResult[]> {
   } catch {
     return [];
   }
+}
+
+async function ddgSearch(query: string, maxResults = 8): Promise<RawResult[]> {
+  const lite = await ddgLiteSearch(query, maxResults);
+  if (lite.length > 0) return lite;
+  // lite 版沒抓到任何東西，才多打一次 html 版當備援
+  return ddgHtmlSearch(query, maxResults);
 }
 
 /**
