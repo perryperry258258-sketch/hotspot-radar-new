@@ -124,6 +124,10 @@ usedBefore=true，並在 usedBeforeNote 簡短說明（例如「昨天已使用�
 不能虛構來源、不能虛構網址、也不能虛構精確的討論量數字
 （例如不能寫「討論量 3.9 萬」這種你編出來的數字；如果原始資料沒有精確數字，
 只能用「近期討論明顯增加」這類描述性說法）。
+如果某個話題的來源網址是 threads.com 或 threads.net（代表是 Threads 上的原生貼文），
+whyTrending 可以直接說「這則貼文本身正在 Threads 上流傳」；
+如果來源只是別的網站在報導或轉述 Threads 的動態（網址不是 threads.com/threads.net），
+whyTrending 要誠實說明這是「媒體報導 Threads 上的熱門動態」，不要講得好像你親眼看到那則貼文一樣。
 
 # 輸出格式（非常重要：只能輸出這個 JSON，不要有其他文字說明，不要用 markdown code fence 包起來）
 # 再次提醒：整份輸出必須是合法可解析的 JSON。所有字串欄位裡絕對不要出現半形雙引號 " ，
