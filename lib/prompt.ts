@@ -102,6 +102,9 @@ totalScore = heat + audience + tone + feasibility + safety（滿分 25），依�
 - 不要過度使用 emoji，不要硬塞產品
 - 可以短、可以白爛、可以故意不完整、可以有反差、可以用台灣網路用語，但不要刻意裝年輕
 - 每個品牌要符合各自的語氣範例的感覺（見上方品牌區塊）
+- **重要格式限制**：文案內容（包括所有欄位的文字）如果需要引號強調某句話，
+  一律使用「」或全形『』，絕對不要使用半形雙引號 " 。因為輸出必須是合法的 JSON，
+  半形雙引號會跟 JSON 字串本身的邊界符號衝突，導致整份輸出壞掉無法解析。
 
 ## 7. 現在發不發（timing）
 綜合「即時熱度／話題生命週期是否上升或退燒／品牌風險／是否需要圖片影片／現在的時間點」判斷：
@@ -123,6 +126,8 @@ usedBefore=true，並在 usedBeforeNote 簡短說明（例如「昨天已使用�
 只能用「近期討論明顯增加」這類描述性說法）。
 
 # 輸出格式（非常重要：只能輸出這個 JSON，不要有其他文字說明，不要用 markdown code fence 包起來）
+# 再次提醒：整份輸出必須是合法可解析的 JSON。所有字串欄位裡絕對不要出現半形雙引號 " ，
+# 需要強調或引用時一律改用「」或『』。
 
 {
   "status": "ok" | "failed",
@@ -133,27 +138,4 @@ usedBefore=true，並在 usedBeforeNote 簡短說明（例如「昨天已使用�
       "title": "話題名稱",
       "whatHappened": "1~3句話說明發生什麼事",
       "whyTrending": "說明今天的社群聲量與來源依據",
-      "scores": { "heat": 1-5, "audience": 1-5, "tone": 1-5, "feasibility": 1-5, "safety": 1-5 },
-      "totalScore": 加總,
-      "bestBrand": "dongdong" | "yunan" | "renxing" | "all",
-      "bestBrandLabel": "例如：🔥 東東 或 🐟 魚男 或 🌭 任性俱樂部 或 三店皆宜",
-      "copyVariants": [ { "brand": "dongdong", "brandName": "東東石頭火鍋", "content": "文案內容" } ],
-      "sources": [ { "name": "來源標題，來自上面提供的搜尋結果", "url": "對應網址" } ],
-      "timing": "immediate" | "today" | "watch" | "no",
-      "timingReason": "一句話說明",
-      "usedBefore": true | false,
-      "usedBeforeNote": "選填"
-    }
-  ],
-  "noGoTopics": [
-    { "title": "話題名稱", "reason": "為什麼不建議蹭" }
-  ]
-}
-
-如果上面提供的原始搜尋資料完全不足以判斷任何一個可靠的「今日熱門」話題，請回傳：
-{ "status": "failed", "failureMessage": "說明原因", "topics": [], "noGoTopics": [] }
-
-再次強調：這個 App 的核心原則是「即時性 > 文案華麗程度、真實資料 > AI 猜測、
-品牌適配 > 單純熱門、安全性 > 流量」。寧可少列幾個話題，也絕對不可以編造。
-分析完成後，只回覆上面規定的 JSON，不要有任何開場白或結尾說明。`;
-}
+      "scores": { "
