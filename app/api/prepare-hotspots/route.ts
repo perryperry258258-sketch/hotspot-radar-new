@@ -37,6 +37,7 @@ export async function POST() {
       ddgCount: search.ddgCount,
       braveCount: search.braveCount,
       queriesUsed: search.queriesUsed,
+      debug: search.debug,
     });
   } catch (err: any) {
     console.error("prepare-hotspots error:", err);
