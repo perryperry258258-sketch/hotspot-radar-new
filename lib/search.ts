@@ -18,15 +18,14 @@ export interface DebugEntry {
 }
 
 // 涵蓋題目要求的各種面向：Threads、爆文、迷因、新聞、生活、美食、流行文化
+// 數量刻意精簡（原本 8 組），避免整個流程在 Vercel 免費方案的執行時間限制內逾時。
 const QUERIES = [
   "今天 台灣 threads 熱門 討論",
-  "台灣 threads 熱門話題",
   "台灣 今日 爆文",
   "台灣 迷因 話題",
   "台灣 今天 新聞 討論度",
   "台灣 社群 熱議",
   "台灣 美食 話題 討論",
-  "台灣 流行文化 話題",
 ];
 
 const UA =
@@ -219,9 +218,17 @@ export interface SearchSummary {
  * 依序（平行）打完所有預設查詢，彙整原始搜尋結果。
  * 這裡完全不呼叫任何 LLM，只做「抓資料」這件事。
  * 同時回傳 debug 陣列，方便診斷是連線失敗、被擋、還是格式跑掉。
+ *
+ * 如果有設定 SEARCH_API_KEY（Brave），就完全跳過 DuckDuckGo：
+ * Brave 是正式 API，比較快也比較穩，跳過 DDG 可以大幅縮短整個流程的時間，
+ * 避免在 Vercel 免費方案的執行時間限制內逾時。
  */
 export async function collectRawResults(): Promise<SearchSummary> {
-  const ddgBatches = await Promise.all(QUERIES.map((q) => ddgSearch(q)));
+  const hasBrave = Boolean(process.env.SEARCH_API_KEY);
+
+  const ddgBatches = hasBrave
+    ? []
+    : await Promise.all(QUERIES.map((q) => ddgSearch(q)));
   const braveBatches = await Promise.all(QUERIES.map((q) => braveSearch(q)));
 
   const ddgResults = ddgBatches.flatMap((b) => b.results);
