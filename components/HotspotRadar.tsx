@@ -51,6 +51,8 @@ export default function HotspotRadar() {
   const [pasteText, setPasteText] = useState("");
   const [parseError, setParseError] = useState<string | null>(null);
   const [report, setReport] = useState<HotspotReport | null>(null);
+  const [debugInfo, setDebugInfo] = useState<any[]>([]);
+  const [showDebug, setShowDebug] = useState(false);
 
   const [showHistory, setShowHistory] = useState(false);
   const [initialLoad, setInitialLoad] = useState(true);
@@ -85,6 +87,7 @@ export default function HotspotRadar() {
       }
       setPrompt(data.prompt);
       setRawResultCount(data.rawResultCount ?? 0);
+      setDebugInfo(data.debug ?? []);
       setStage("prompt-ready");
     } catch (err: any) {
       setCollectError(err?.message || "資料收集失敗，請稍後再試一次。");
@@ -207,15 +210,126 @@ export default function HotspotRadar() {
             </div>
           ) : (
             <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm text-amber-300">
-              ⚠️ 這次沒有抓到任何搜尋結果（免費的 DuckDuckGo 搜尋這次被擋掉或暫時失敗了，
-              這是免費方案偶爾會遇到的狀況）。Prompt 還是會產生，但 Claude 會因為資料不足
-              而回覆「資料不足」。建議：稍等一下再重新收集一次；如果常常發生，可以申請
-              免費的 Brave Search API Key 填進 <code>SEARCH_API_KEY</code> 當備援
-              （README 有申請連結）。
+              <p>
+                ⚠️ 這次沒有抓到任何搜尋結果（免費的 DuckDuckGo 搜尋這次被擋掉或暫時失敗了，
+                這是免費方案偶爾會遇到的狀況）。Prompt 還是會產生，但 Claude 會因為資料不足
+                而回覆「資料不足」。建議：稍等一下再重新收集一次；如果常常發生，可以申請
+                免費的 Brave Search API Key 填進 <code>SEARCH_API_KEY</code> 當備援
+                （README 有申請連結）。
+              </p>
+              <button
+                onClick={() => setShowDebug((v) => !v)}
+                className="mt-2 rounded-lg bg-amber-500/20 px-3 py-1 text-xs font-medium hover:bg-amber-500/30"
+              >
+                {showDebug ? "隱藏除錯資訊" : "🔧 顯示除錯資訊"}
+              </button>
+              {showDebug && (
+                <pre className="mt-2 max-h-48 overflow-auto rounded-lg bg-black/40 p-2 text-[10px] leading-relaxed text-neutral-300">
+                  {JSON.stringify(debugInfo, null, 2)}
+                </pre>
+              )}
             </div>
           )}
 
           <div className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-4">
             <div className="mb-2 flex items-center justify-between">
               <h2 className="text-sm font-bold">① 複製下面這段 Prompt</h2>
-              <CopyBut
+              <CopyButton text={prompt} />
+            </div>
+            <textarea
+              readOnly
+              value={prompt}
+              className="h-56 w-full resize-y rounded-xl border border-neutral-800 bg-black/40 p-3 text-xs leading-relaxed text-neutral-300"
+            />
+            <ol className="mt-3 list-decimal space-y-1 pl-5 text-xs text-neutral-400">
+              <li>複製上面的 Prompt</li>
+              <li>貼到 Claude.ai（或任何你在用的 Claude 對話視窗）送出</li>
+              <li>等 Claude 回覆完整的 JSON</li>
+              <li>把 Claude 的完整回覆複製起來，貼到下面的框框</li>
+              <li>按下「② 解析並顯示分析結果」</li>
+            </ol>
+          </div>
+
+          <div className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-4">
+            <h2 className="mb-2 text-sm font-bold">② 貼上 Claude 的回覆</h2>
+            <textarea
+              value={pasteText}
+              onChange={(e) => setPasteText(e.target.value)}
+              placeholder="把 Claude 回覆的 JSON 內容貼在這裡..."
+              className="h-40 w-full resize-y rounded-xl border border-neutral-800 bg-black/40 p-3 text-xs leading-relaxed text-neutral-200 placeholder:text-neutral-600"
+            />
+            {parseError && (
+              <p className="mt-2 text-sm text-red-400">{parseError}</p>
+            )}
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={handleParse}
+                disabled={!pasteText.trim()}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold hover:bg-emerald-500 disabled:opacity-50"
+              >
+                ② 解析並顯示分析結果
+              </button>
+              <button
+                onClick={handleReset}
+                className="rounded-lg bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-700"
+              >
+                重新開始
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Step 3：顯示結果 */}
+      {stage === "result" && report?.status === "failed" && (
+        <div className="mb-6 rounded-2xl border border-red-500/30 bg-red-500/10 p-5 text-center">
+          <p className="font-medium text-red-400">{report.failureMessage}</p>
+          <button
+            onClick={handleReset}
+            className="mt-3 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold hover:bg-red-500"
+          >
+            重新開始
+          </button>
+        </div>
+      )}
+
+      {stage === "result" && report?.status === "ok" && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-neutral-500">
+              完成！共 {report.topics.length} 個值得注意的話題。
+            </p>
+            <button
+              onClick={handleReset}
+              className="rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-medium hover:bg-neutral-700"
+            >
+              🔄 重新收集今日資料
+            </button>
+          </div>
+          <Top3Panel topics={report.topics} />
+          <NoGoPanel topics={report.noGoTopics} />
+          <div className="space-y-4">
+            {report.topics.map((t, i) => (
+              <TopicCard key={t.id} topic={t} rank={i < 3 ? i + 1 : undefined} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {stage === "idle" && !report && !initialLoad && (
+        <p className="mt-12 text-center text-sm text-neutral-500">
+          按下上面的按鈕，開始收集今天的公開搜尋資料。
+        </p>
+      )}
+
+      <button
+        onClick={() => setShowHistory(true)}
+        className="fixed bottom-5 right-5 rounded-full bg-neutral-800 px-4 py-3 text-sm font-medium shadow-lg hover:bg-neutral-700"
+      >
+        📚 歷史紀錄
+      </button>
+
+      {showHistory && <HistoryPanel onClose={() => setShowHistory(false)} />}
+    </main>
+  );
+}
