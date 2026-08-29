@@ -3,7 +3,12 @@ import path from "path";
 import { HistorySummary, HotspotReport } from "./types";
 
 function dataDir(): string {
-  return process.env.DATA_DIR || path.join(process.cwd(), "data");
+  if (process.env.DATA_DIR) return process.env.DATA_DIR;
+  // Vercel 的部署檔案（包含 process.cwd() 底下的東西）是唯讀的，
+  // 只有 /tmp 可以寫入。這代表在 Vercel 上歷史紀錄只是暫時性的
+  // （跟 README 裡說明的限制一致），但至少不會讓整個請求爆掉。
+  if (process.env.VERCEL) return "/tmp/data";
+  return path.join(process.cwd(), "data");
 }
 
 function historyDir(): string {
