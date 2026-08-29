@@ -83,7 +83,14 @@ export default function HotspotRadar() {
 
     try {
       const res = await fetch("/api/auto-generate", { method: "POST" });
-      const data = await res.json();
+      let data: any;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error(
+          "伺服器回應逾時或發生錯誤（不是預期的格式），這通常是處理時間太長被平台中斷了，請稍等一下再試一次。"
+        );
+      }
       if (!res.ok || data.mode === "error") {
         throw new Error(data?.error || "資料收集失敗");
       }
