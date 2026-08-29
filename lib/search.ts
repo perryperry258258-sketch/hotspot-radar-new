@@ -19,12 +19,16 @@ export interface DebugEntry {
 
 // 涵蓋題目要求的各種面向：Threads、爆文、迷因、新聞、生活、美食、流行文化
 // 數量刻意精簡（原本 8 組），避免整個流程在 Vercel 免費方案的執行時間限制內逾時。
+// 前兩組刻意用 site: 限定在 threads.com / threads.net 網域，
+// 讓結果更貼近 Threads 上的原生貼文，而不是「別人在講 Threads 有什麼熱門」的新聞報導。
+// （Threads 沒有官方公開搜尋 API，這裡能做到的極限就是搜尋引擎收錄到的 Threads 貼文，
+// 收錄完整度本來就比一般新聞網站差，無法做到即時看到每一則正在燒的貼文。）
 const QUERIES = [
-  "今天 台灣 threads 熱門 討論",
+  "site:threads.com 台灣 熱門",
+  "site:threads.net 台灣 話題",
+  "台灣 threads 熱門話題",
   "台灣 今日 爆文",
-  "台灣 迷因 話題",
   "台灣 今天 新聞 討論度",
-  "台灣 社群 熱議",
   "台灣 美食 話題 討論",
 ];
 
