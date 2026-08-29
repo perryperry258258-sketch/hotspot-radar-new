@@ -10,10 +10,10 @@ import HistoryPanel from "./HistoryPanel";
 import CopyButton from "./CopyButton";
 
 const LOADING_MESSAGES = [
-  "🔎 正在用 DuckDuckGo 搜尋今日話題...",
+  "🔎 正在搜尋今日話題...",
   "📰 正在整理新聞與社群結果...",
   "🧹 正在合併重複資料...",
-  "✍️ 正在組合分析 Prompt...",
+  "🤖 正在請 AI 分析並產生文案...",
 ];
 
 function todayLabel(): string {
@@ -47,6 +47,7 @@ export default function HotspotRadar() {
   const [prompt, setPrompt] = useState<string>("");
   const [rawResultCount, setRawResultCount] = useState(0);
   const [collectError, setCollectError] = useState<string | null>(null);
+  const [fallbackReason, setFallbackReason] = useState<string | null>(null);
 
   const [pasteText, setPasteText] = useState("");
   const [parseError, setParseError] = useState<string | null>(null);
@@ -71,24 +72,34 @@ export default function HotspotRadar() {
       .finally(() => setInitialLoad(false));
   }, []);
 
-  async function handleCollect() {
+  async function handleGenerate() {
     setStage("collecting");
     setCollectError(null);
+    setFallbackReason(null);
     setMsgIndex(0);
     intervalRef.current = setInterval(() => {
       setMsgIndex((i) => Math.min(i + 1, LOADING_MESSAGES.length - 1));
-    }, 900);
+    }, 1200);
 
     try {
-      const res = await fetch("/api/prepare-hotspots", { method: "POST" });
+      const res = await fetch("/api/auto-generate", { method: "POST" });
       const data = await res.json();
-      if (!res.ok) {
+      if (!res.ok || data.mode === "error") {
         throw new Error(data?.error || "資料收集失敗");
       }
-      setPrompt(data.prompt);
-      setRawResultCount(data.rawResultCount ?? 0);
-      setDebugInfo(data.debug ?? []);
-      setStage("prompt-ready");
+
+      if (data.mode === "auto") {
+        setReport(data.report);
+        setStage("result");
+      } else {
+        // mode === "manual"：AI 那步沒能自動完成，退回複製貼上模式，
+        // 資料收集已經做完了，Prompt 也準備好了
+        setPrompt(data.prompt);
+        setRawResultCount(data.rawResultCount ?? 0);
+        setDebugInfo(data.debug ?? []);
+        setFallbackReason(data.fallbackReason ?? null);
+        setStage("prompt-ready");
+      }
     } catch (err: any) {
       setCollectError(err?.message || "資料收集失敗，請稍後再試一次。");
       setStage("idle");
@@ -124,6 +135,7 @@ export default function HotspotRadar() {
     setPasteText("");
     setParseError(null);
     setCollectError(null);
+    setFallbackReason(null);
     setReport(null);
   }
 
@@ -137,7 +149,7 @@ export default function HotspotRadar() {
         </h1>
         <p className="mt-1 text-sm text-neutral-400">{todayLabel()}</p>
         <p className="mt-1 text-xs text-neutral-600">
-          純網頁搜尋整理 + 手動貼到 Claude 分析，完全不需要 API 費用
+          一鍵搜尋＋AI 分析，全自動產生今日話題與文案
         </p>
       </header>
 
@@ -165,7 +177,7 @@ export default function HotspotRadar() {
           <p className="text-neutral-500">系統狀態</p>
           <p className="mt-1 font-medium">
             {stage === "collecting"
-              ? "🟡 收集資料中"
+              ? "🟡 處理中"
               : stage === "prompt-ready"
               ? "🟠 等待貼回分析結果"
               : report?.status === "failed"
@@ -177,15 +189,15 @@ export default function HotspotRadar() {
         </div>
       </div>
 
-      {/* Step 1：收集資料 */}
+      {/* Step 1：一鍵產生 */}
       {(stage === "idle" || stage === "collecting") && (
         <div className="mb-6 flex flex-col items-center gap-3">
           <button
-            onClick={handleCollect}
+            onClick={handleGenerate}
             disabled={stage === "collecting"}
             className="w-full max-w-xs rounded-2xl bg-gradient-to-br from-red-600 to-orange-500 px-6 py-5 text-lg font-bold shadow-lg shadow-red-900/30 transition active:scale-95 disabled:opacity-60"
           >
-            {stage === "collecting" ? "收集中..." : "🔍 收集今日資料＋產生分析 Prompt"}
+            {stage === "collecting" ? "處理中..." : "🔥 一鍵產生今日熱點"}
           </button>
           {collectError && (
             <p className="text-sm text-red-400">{collectError}</p>
@@ -201,9 +213,15 @@ export default function HotspotRadar() {
         </div>
       )}
 
-      {/* Step 2：把 Prompt 複製到 Claude，並貼回結果 */}
+      {/* Step 2（備援模式）：AI 沒能自動完成，退回複製貼上 */}
       {stage === "prompt-ready" && (
         <div className="mb-6 space-y-4">
+          {fallbackReason && (
+            <div className="rounded-2xl border border-sky-500/20 bg-sky-500/5 p-4 text-sm text-sky-300">
+              ℹ️ {fallbackReason}
+            </div>
+          )}
+
           {rawResultCount > 0 ? (
             <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-300">
               ✅ 已收集到 {rawResultCount} 筆原始搜尋結果，Prompt 已經產生好了。
@@ -211,11 +229,8 @@ export default function HotspotRadar() {
           ) : (
             <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm text-amber-300">
               <p>
-                ⚠️ 這次沒有抓到任何搜尋結果（免費的 DuckDuckGo 搜尋這次被擋掉或暫時失敗了，
-                這是免費方案偶爾會遇到的狀況）。Prompt 還是會產生，但 Claude 會因為資料不足
-                而回覆「資料不足」。建議：稍等一下再重新收集一次；如果常常發生，可以申請
-                免費的 Brave Search API Key 填進 <code>SEARCH_API_KEY</code> 當備援
-                （README 有申請連結）。
+                ⚠️ 這次沒有抓到任何搜尋結果。Prompt 還是會產生，但分析時會因為
+                資料不足而回覆「資料不足」。建議稍等一下再試一次。
               </p>
               <button
                 onClick={() => setShowDebug((v) => !v)}
@@ -243,19 +258,19 @@ export default function HotspotRadar() {
             />
             <ol className="mt-3 list-decimal space-y-1 pl-5 text-xs text-neutral-400">
               <li>複製上面的 Prompt</li>
-              <li>貼到 Claude.ai（或任何你在用的 Claude 對話視窗）送出</li>
-              <li>等 Claude 回覆完整的 JSON</li>
-              <li>把 Claude 的完整回覆複製起來，貼到下面的框框</li>
+              <li>貼到 Claude.ai（或任何你在用的 AI 對話視窗）送出</li>
+              <li>等 AI 回覆完整的 JSON</li>
+              <li>把完整的回覆複製起來，貼到下面的框框</li>
               <li>按下「② 解析並顯示分析結果」</li>
             </ol>
           </div>
 
           <div className="rounded-2xl border border-neutral-800 bg-neutral-900/60 p-4">
-            <h2 className="mb-2 text-sm font-bold">② 貼上 Claude 的回覆</h2>
+            <h2 className="mb-2 text-sm font-bold">② 貼上 AI 的回覆</h2>
             <textarea
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
-              placeholder="把 Claude 回覆的 JSON 內容貼在這裡..."
+              placeholder="把 AI 回覆的 JSON 內容貼在這裡..."
               className="h-40 w-full resize-y rounded-xl border border-neutral-800 bg-black/40 p-3 text-xs leading-relaxed text-neutral-200 placeholder:text-neutral-600"
             />
             {parseError && (
@@ -303,7 +318,7 @@ export default function HotspotRadar() {
               onClick={handleReset}
               className="rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-medium hover:bg-neutral-700"
             >
-              🔄 重新收集今日資料
+              🔄 重新產生今日熱點
             </button>
           </div>
           <Top3Panel topics={report.topics} />
@@ -318,7 +333,7 @@ export default function HotspotRadar() {
 
       {stage === "idle" && !report && !initialLoad && (
         <p className="mt-12 text-center text-sm text-neutral-500">
-          按下上面的按鈕，開始收集今天的公開搜尋資料。
+          按下上面的按鈕，開始產生今天的熱點分析。
         </p>
       )}
 
