@@ -1,0 +1,6 @@
+node_modules
+.next
+.env
+.env.local
+data/history/*.json
+!data/history/.gitkeep
