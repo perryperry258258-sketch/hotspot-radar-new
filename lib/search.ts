@@ -8,6 +8,15 @@ export interface RawResult {
   source: "duckduckgo" | "brave";
 }
 
+export interface DebugEntry {
+  engine: string;
+  query: string;
+  ok: boolean;
+  httpStatus?: number;
+  resultCount: number;
+  error?: string;
+}
+
 // 涵蓋題目要求的各種面向：Threads、爆文、迷因、新聞、生活、美食、流行文化
 const QUERIES = [
   "今天 台灣 threads 熱門 討論",
@@ -44,20 +53,22 @@ function decodeDdgHref(rawHref: string): string {
   }
 }
 
-/**
- * 第一優先：lite.duckduckgo.com/lite/ ── 這是 DuckDuckGo 給低頻寬/文字瀏覽器用的
- * 簡化版頁面，結構單純很多，實務上比 html.duckduckgo.com/html/ 更不容易被擋或改版。
- */
-async function ddgLiteSearch(
-  query: string,
-  maxResults = 8
-): Promise<RawResult[]> {
+interface EngineOutcome {
+  results: RawResult[];
+  debug: DebugEntry;
+}
+
+async function ddgLiteSearch(query: string, maxResults = 8): Promise<EngineOutcome> {
+  const engine = "duckduckgo-lite";
   try {
-    const url = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(
-      query
-    )}&kl=tw-tzh`;
+    const url = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}&kl=tw-tzh`;
     const res = await fetch(url, { headers: COMMON_HEADERS, cache: "no-store" });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      return {
+        results: [],
+        debug: { engine, query, ok: false, httpStatus: res.status, resultCount: 0 },
+      };
+    }
     const html = await res.text();
     const $ = cheerio.load(html);
     const results: RawResult[] = [];
@@ -72,26 +83,29 @@ async function ddgLiteSearch(
       results.push({ title, url: href, snippet, query, source: "duckduckgo" });
     });
 
-    return results;
-  } catch {
-    return [];
+    return {
+      results,
+      debug: { engine, query, ok: true, httpStatus: res.status, resultCount: results.length },
+    };
+  } catch (err: any) {
+    return {
+      results: [],
+      debug: { engine, query, ok: false, resultCount: 0, error: String(err?.message || err) },
+    };
   }
 }
 
-/**
- * 第二優先（fallback）：html.duckduckgo.com/html/ 的一般版面。
- * 只有 lite 版沒抓到任何結果時才會用到。
- */
-async function ddgHtmlSearch(
-  query: string,
-  maxResults = 8
-): Promise<RawResult[]> {
+async function ddgHtmlSearch(query: string, maxResults = 8): Promise<EngineOutcome> {
+  const engine = "duckduckgo-html";
   try {
-    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(
-      query
-    )}&kl=tw-tzh`;
+    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}&kl=tw-tzh`;
     const res = await fetch(url, { headers: COMMON_HEADERS, cache: "no-store" });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      return {
+        results: [],
+        debug: { engine, query, ok: false, httpStatus: res.status, resultCount: 0 },
+      };
+    }
     const html = await res.text();
     const $ = cheerio.load(html);
     const results: RawResult[] = [];
@@ -106,26 +120,42 @@ async function ddgHtmlSearch(
       results.push({ title, url: href, snippet, query, source: "duckduckgo" });
     });
 
-    return results;
-  } catch {
-    return [];
+    return {
+      results,
+      debug: { engine, query, ok: true, httpStatus: res.status, resultCount: results.length },
+    };
+  } catch (err: any) {
+    return {
+      results: [],
+      debug: { engine, query, ok: false, resultCount: 0, error: String(err?.message || err) },
+    };
   }
 }
 
-async function ddgSearch(query: string, maxResults = 8): Promise<RawResult[]> {
+async function ddgSearch(
+  query: string,
+  maxResults = 8
+): Promise<{ results: RawResult[]; debug: DebugEntry[] }> {
   const lite = await ddgLiteSearch(query, maxResults);
-  if (lite.length > 0) return lite;
-  // lite 版沒抓到任何東西，才多打一次 html 版當備援
-  return ddgHtmlSearch(query, maxResults);
+  if (lite.results.length > 0) {
+    return { results: lite.results, debug: [lite.debug] };
+  }
+  const html = await ddgHtmlSearch(query, maxResults);
+  return { results: html.results, debug: [lite.debug, html.debug] };
 }
 
 /**
  * 選用的 Brave Search 補充來源。只有設定 SEARCH_API_KEY 才會啟用；
  * 沒設定就直接回傳空陣列，完全不影響主流程。
  */
-async function braveSearch(query: string, maxResults = 6): Promise<RawResult[]> {
+async function braveSearch(
+  query: string,
+  maxResults = 6
+): Promise<{ results: RawResult[]; debug: DebugEntry }> {
   const apiKey = process.env.SEARCH_API_KEY;
-  if (!apiKey) return [];
+  if (!apiKey) {
+    return { results: [], debug: { engine: "brave", query, ok: true, resultCount: 0, error: "no key configured" } };
+  }
   try {
     const res = await fetch(
       `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(
@@ -139,10 +169,12 @@ async function braveSearch(query: string, maxResults = 6): Promise<RawResult[]> 
         cache: "no-store",
       }
     );
-    if (!res.ok) return [];
+    if (!res.ok) {
+      return { results: [], debug: { engine: "brave", query, ok: false, httpStatus: res.status, resultCount: 0 } };
+    }
     const data = await res.json();
     const webResults = data?.web?.results ?? [];
-    return webResults
+    const results = webResults
       .filter((r: any) => r?.title && r?.url)
       .map((r: any) => ({
         title: r.title,
@@ -151,8 +183,15 @@ async function braveSearch(query: string, maxResults = 6): Promise<RawResult[]> 
         query,
         source: "brave" as const,
       }));
-  } catch {
-    return [];
+    return {
+      results,
+      debug: { engine: "brave", query, ok: true, httpStatus: res.status, resultCount: results.length },
+    };
+  } catch (err: any) {
+    return {
+      results: [],
+      debug: { engine: "brave", query, ok: false, resultCount: 0, error: String(err?.message || err) },
+    };
   }
 }
 
@@ -173,24 +212,32 @@ export interface SearchSummary {
   queriesUsed: string[];
   ddgCount: number;
   braveCount: number;
+  debug: DebugEntry[];
 }
 
 /**
  * 依序（平行）打完所有預設查詢，彙整原始搜尋結果。
  * 這裡完全不呼叫任何 LLM，只做「抓資料」這件事。
+ * 同時回傳 debug 陣列，方便診斷是連線失敗、被擋、還是格式跑掉。
  */
 export async function collectRawResults(): Promise<SearchSummary> {
   const ddgBatches = await Promise.all(QUERIES.map((q) => ddgSearch(q)));
   const braveBatches = await Promise.all(QUERIES.map((q) => braveSearch(q)));
 
-  const ddgResults = ddgBatches.flat();
-  const braveResults = braveBatches.flat();
+  const ddgResults = ddgBatches.flatMap((b) => b.results);
+  const braveResults = braveBatches.flatMap((b) => b.results);
   const merged = dedupe([...ddgResults, ...braveResults]);
+
+  const debug: DebugEntry[] = [
+    ...ddgBatches.flatMap((b) => b.debug),
+    ...braveBatches.map((b) => b.debug),
+  ];
 
   return {
     results: merged,
     queriesUsed: QUERIES,
     ddgCount: ddgResults.length,
     braveCount: braveResults.length,
+    debug,
   };
 }
