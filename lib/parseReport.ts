@@ -54,6 +54,77 @@ function escapeRawControlCharsInStrings(text: string): string {
   return out;
 }
 
+/**
+ * 當 JSON 被截斷或格式有小瑕疵、直接解析失敗時，嘗試「搶救」：
+ * 找到最後一個語法上完整、安全的截斷點（例如某個逗號、或某個
+ * } / ] 結束的地方），把後面不完整的內容丟掉，再自動補上對應的
+ * 收尾括號。這樣至少能保留前面已經產生好的話題，而不是整份作廢。
+ */
+function repairTruncatedJson(text: string): string | null {
+  let inString = false;
+  let escaped = false;
+  let lastSafeIndex = -1;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "," || ch === "}" || ch === "]") {
+      lastSafeIndex = i;
+    }
+  }
+
+  if (lastSafeIndex === -1) return null;
+
+  let truncated = text.slice(0, lastSafeIndex + 1).replace(/,\s*$/, "");
+
+  const stack: string[] = [];
+  let inString2 = false;
+  let escaped2 = false;
+  for (let i = 0; i < truncated.length; i++) {
+    const ch = truncated[i];
+    if (inString2) {
+      if (escaped2) {
+        escaped2 = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped2 = true;
+        continue;
+      }
+      if (ch === '"') inString2 = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString2 = true;
+      continue;
+    }
+    if (ch === "{" || ch === "[") stack.push(ch);
+    else if (ch === "}" || ch === "]") stack.pop();
+  }
+
+  const closers = stack
+    .reverse()
+    .map((c) => (c === "{" ? "}" : "]"))
+    .join("");
+
+  return truncated + closers;
+}
+
 export function extractJson(text: string): any {
   let cleaned = text.trim();
   const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -66,12 +137,31 @@ export function extractJson(text: string): any {
   }
   const jsonSlice = cleaned.slice(start, end + 1);
 
-  try {
-    return JSON.parse(jsonSlice);
-  } catch {
-    // 第一次解析失敗，很可能是字串裡面有沒跳脫的換行，修正後再試一次
-    return JSON.parse(escapeRawControlCharsInStrings(jsonSlice));
+  // 依序嘗試：直接解析 → 修正字串內換行後解析 → 搶救截斷後解析（兩種版本都試）
+  const attempts = [
+    () => JSON.parse(jsonSlice),
+    () => JSON.parse(escapeRawControlCharsInStrings(jsonSlice)),
+    () => {
+      const repaired = repairTruncatedJson(jsonSlice);
+      if (!repaired) throw new Error("no safe truncation point");
+      return JSON.parse(repaired);
+    },
+    () => {
+      const repaired = repairTruncatedJson(escapeRawControlCharsInStrings(jsonSlice));
+      if (!repaired) throw new Error("no safe truncation point");
+      return JSON.parse(repaired);
+    },
+  ];
+
+  let lastErr: any;
+  for (const attempt of attempts) {
+    try {
+      return attempt();
+    } catch (err) {
+      lastErr = err;
+    }
   }
+  throw lastErr;
 }
 
 function normalizeTopic(raw: any, index: number): Topic {
@@ -136,4 +226,4 @@ export function buildReportFromPastedText(
     noGoTopics: Array.isArray(parsed.noGoTopics) ? parsed.noGoTopics : [],
     status: "ok",
   };
-}
+    }
